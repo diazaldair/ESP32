@@ -1,0 +1,113 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+const char *WIFI_SSID = "romi"; // Nombre de la red Wi-Fi
+const char *WIFI_PASS = "12345678"; // Contraseña de la red Wi-Fi
+
+const char *MQTT_BROKER_HOST = "broker.hivemq.com"; // Dirección del broker MQTT
+const int MQTT_BROKER_PORT = 1883; // Puerto del broker MQTT
+
+const char *MQTT_CLIENT_ID = "brandon.ovandoucb.edu.bo"; // Identificador único del cliente MQTT
+const char *PUBLISH_TOPIC = "ucb.edu.bo/test_in"; // Tema donde el ESP32 publica mensajes
+const char *SUBSCRIBE_TOPIC = "ucb.edu.bo/test_in"; // Tema donde el ESP32 recibe mensajes
+
+WiFiClient wiFiClient; // Cliente Wi-Fi
+PubSubClient mqttClient(wiFiClient); // Cliente MQTT utilizando el cliente Wi-Fi
+
+const int LED1_PIN = 2; // Pin para el primer LED
+const int LED2_PIN = 4; // Pin para el segundo LED
+const int LED3_PIN = 5; // Pin para el tercer LED
+const int LED4_PIN = 18; // Pin para el cuarto LED
+
+const int TRIGGER_PIN = 19; // Pin de disparo del sensor ultrasónico
+const int ECHO_PIN = 23; // Pin de eco del sensor ultrasónico
+
+long readUltrasonicDistance(int triggerPin, int echoPin) 
+{
+    digitalWrite(triggerPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(triggerPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(triggerPin, LOW);
+    return pulseIn(echoPin, HIGH);
+}
+
+void callback(const char *topic, byte *payload, unsigned int length)
+{
+    String message;
+    for (int i = 0; i < length; i++)
+        message += String((char)payload[i]);
+    if (String(topic) == SUBSCRIBE_TOPIC)
+    {
+        Serial.println("Message from topic " + String(topic) + ":" + message);
+        if (message == "LED_ON")
+        {
+            digitalWrite(LED1_PIN, HIGH);
+            digitalWrite(LED2_PIN, HIGH);
+        }
+        else if (message == "LED_OFF")
+        {
+            digitalWrite(LED1_PIN, LOW);
+            digitalWrite(LED2_PIN, LOW);
+        }
+        if (message == "LED_ON1")
+        {
+            digitalWrite(LED3_PIN, HIGH);
+            digitalWrite(LED4_PIN, HIGH);
+        }
+        else if (message == "LED_OFF1")
+        {
+            digitalWrite(LED3_PIN, LOW);
+            digitalWrite(LED4_PIN, LOW);
+        }
+    }
+}
+
+void setup()
+{
+    pinMode(LED1_PIN, OUTPUT);
+    pinMode(LED2_PIN, OUTPUT);
+    pinMode(LED3_PIN, OUTPUT);
+    pinMode(LED4_PIN, OUTPUT);
+    pinMode(TRIGGER_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+    Serial.begin(115200); // Inicializa la comunicación serial a 115200 baudios
+
+    Serial.print("Connecting to " + String(WIFI_SSID)); // Imprime en consola el intento de conexión a la red Wi-Fi
+    WiFi.begin(WIFI_SSID, WIFI_PASS); // Intenta conectar a la red Wi-Fi
+    while (WiFi.status() != WL_CONNECTED) // Espera hasta que se establezca la conexión Wi-Fi
+    {
+        delay(200);
+        Serial.print(".");
+    }
+    Serial.println(" Connected!"); // Imprime en consola una vez que se ha establecido la conexión Wi-Fi
+
+    mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT); // Configura el servidor MQTT
+    mqttClient.setCallback(callback); // Establece la función de devolución de llamada para los mensajes MQTT entrantes
+
+    Serial.print("Connecting to " + String(MQTT_BROKER_HOST)); // Imprime en consola el intento de conexión al broker MQTT
+    if (mqttClient.connect(MQTT_CLIENT_ID)) // Intenta conectarse al broker MQTT
+    {
+        Serial.println(" Connected!"); // Imprime en consola una vez que se ha establecido la conexión MQTT
+        mqttClient.subscribe(SUBSCRIBE_TOPIC); // Suscribe al dispositivo al tema especificado para recibir mensajes MQTT
+    }
+}
+
+void loop()
+{
+    if (mqttClient.connected()) // Si el cliente MQTT está conectado
+    {
+        long duration = readUltrasonicDistance(TRIGGER_PIN, ECHO_PIN);
+        // Convertir la duración del pulso de eco a centímetros
+        long distance_cm = duration / 58;
+        // Publicar la distancia en centímetros en el tema MQTT
+        String distanceMessage = String(distance_cm);
+        mqttClient.publish(PUBLISH_TOPIC, distanceMessage.c_str());
+        mqttClient.loop(); // Realiza tareas de mantenimiento para el cliente MQTT
+    }
+    else // Si el cliente MQTT no está conectado
+    {
+        Serial.println("MQTT broker not connected!"); // Imprime en consola que el broker MQTT no está conectado
+        delay(2000); // Espera 2 segundos antes de volver a intentar la conexión
+    }
+}
